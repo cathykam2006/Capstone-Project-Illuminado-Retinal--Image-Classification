@@ -180,7 +180,5 @@ Hopefully, one day, the model will become fully mature and can be turned into an
 
 3. [World Health Organization: Blindness and vision impairment](https://www.who.int/news-room/fact-sheets/detail/blindness-and-visual-impairment)
 
-## Medium Blog Post
 
-1. [Deep Ensemble Learning for Retinal Image Classification (CNN)](https://medium.com/@cathykam2006/deep-ensemble-learning-for-retinal-image-classification-cnn-8a8ce73870c0)
 
