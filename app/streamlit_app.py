@@ -1,24 +1,16 @@
-"""Iluminado: retinal fundus screening demo (Streamlit).
+"""Iluminado - Retinal Disease Screening (Streamlit demo).
 
 Run from the repo root:  streamlit run app/streamlit_app.py
 
-Expects trained models plus the ensemble JSON files written by notebooks 03 and
-04 in the models/ folder. Any model listed in a JSON but missing from models/
-is skipped and the remaining ensemble weights are renormalised, so you can
-deploy a subset (for example, leave out a model too large for GitHub).
+Runs the trained models with the lightweight TensorFlow Lite runtime (ai-edge-litert)
+instead of full TensorFlow, which keeps memory well inside free-hosting limits.
+The .tflite files are made from the trained Keras models by scripts/convert_tflite.py.
 """
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
-
-# Keep TensorFlow lean on small cloud servers (fewer threads = less memory, no thread oversubscription)
-os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
-os.environ.setdefault("OMP_NUM_THREADS", "2")
-os.environ.setdefault("TF_NUM_INTRAOP_THREADS", "2")
-os.environ.setdefault("TF_NUM_INTEROP_THREADS", "1")
 
 import numpy as np
 import streamlit as st
@@ -31,41 +23,46 @@ SAMPLE_DIR = Path(__file__).resolve().parent / "samples"
 
 from iluminado.data import preprocess_image  # noqa: E402  (same preprocessing as training)
 
+MAX_UPLOAD_MB = 20            # also set in .streamlit/config.toml (server.maxUploadSize)
+MAX_SIDE_PX = 2048            # larger photos are shrunk first; the model only sees 384 x 384
+Image.MAX_IMAGE_PIXELS = 50_000_000   # refuse absurdly large images (about 7000 x 7000)
 DISEASE_NAMES = {"DR": "Diabetic retinopathy", "MH": "Media haze", "ODC": "Optic disc cupping"}
 
 st.set_page_config(page_title="Iluminado - Retinal Disease Screening", page_icon="👁️", layout="centered")
 
 
 @st.cache_resource(show_spinner="Loading models…")
-def load_ensemble(task: str):
-    """Return (config, {name: model}) or (None, {}) if this task isn't deployed."""
+def load_model(task: str):
+    """Return (config, TFLite signature runner) or (None, None) if this task isn't deployed."""
     cfg_path = MODEL_DIR / f"{task}_ensemble.json"
     if not cfg_path.exists():
-        return None, {}
-    import tensorflow as tf
-    try:
-        tf.config.threading.set_intra_op_parallelism_threads(2)
-        tf.config.threading.set_inter_op_parallelism_threads(1)
-    except RuntimeError:
-        pass   # already initialised by the other task's load
-    from iluminado.models import load
-
+        return None, None
     cfg = json.loads(cfg_path.read_text())
-    models = {name: load(str(MODEL_DIR / fname))
-              for name, fname in cfg["models"].items() if (MODEL_DIR / fname).exists()}
-    return cfg, models
+    tflite = MODEL_DIR / cfg.get("tflite", "")
+    if not cfg.get("tflite") or not tflite.exists():
+        return None, None
+    from ai_edge_litert.interpreter import Interpreter
+
+    runner = Interpreter(model_path=str(tflite), num_threads=2).get_signature_runner()
+    return cfg, runner
 
 
-def ensemble_predict(cfg, models, img: np.ndarray) -> np.ndarray:
-    w = np.array([cfg["weights"][n] for n in models])
-    # Calling the model directly is lighter than model.predict() for a single image
-    preds = np.stack([np.asarray(m(img[None], training=False))[0] for m in models.values()])
-    return (w / w.sum()) @ preds
+def run(runner, img: np.ndarray):
+    """Probabilities (n,) and heatmaps (h, w, n) for one 0-255 image."""
+    out = runner(image=img[None].astype(np.float32))
+    probs = next(v for v in out.values() if v.ndim == 2)[0]
+    cams = next(v for v in out.values() if v.ndim == 4)[0]
+    return probs, cams
 
 
-def best_model(cfg, models):
-    name = max(models, key=lambda n: cfg["weights"][n])
-    return name, models[name]
+def overlay(img: np.ndarray, cam: np.ndarray, alpha: float = 0.4) -> np.ndarray:
+    """Blend a heatmap (red = most influential) onto the image."""
+    import matplotlib
+
+    cam = np.asarray(Image.fromarray(cam.astype(np.float32)).resize(img.shape[1::-1], Image.BILINEAR))
+    cam = cam / (cam.max() + 1e-8)
+    heat = matplotlib.colormaps["jet"](cam)[..., :3] * 255
+    return np.clip((1 - alpha) * img + alpha * heat, 0, 255).astype(np.uint8)
 
 
 # ------------------------------------------------------------------- page
@@ -84,31 +81,26 @@ A heatmap shows **which part of the retina drove the prediction**, so the result
 The WHO estimates that at least 1 billion people live with vision impairment that could have been prevented or has yet to be addressed, often because there are too few eye specialists. Fundus photos can be taken by trained non-specialists with portable cameras. My goal is a **low-cost first screening step** that helps decide **who should see an ophthalmologist first**, so scarce specialist time goes to the people who need it most. I also wanted it to be **honest about its limits**: every number below comes from images the model never saw during training.
 """)
 
-bin_cfg, bin_models = load_ensemble("binary")
-ml_cfg, ml_models = load_ensemble("multilabel")
+bin_cfg, bin_model = load_model("binary")
+ml_cfg, ml_model = load_model("multilabel")
 
-if not bin_models and not ml_models:
-    st.error(
-        "No trained models found in `models/`. Train them with notebooks 03 and 04, then copy the "
-        "`.keras` files and `*_ensemble.json` files into `models/`."
-    )
+if bin_model is None and ml_model is None:
+    st.error("No models found in `models/`. Run `python scripts/convert_tflite.py` after exporting the trained models.")
     st.stop()
 
 with st.sidebar:
     st.header("About the models")
     if bin_cfg:
-        st.markdown(
-            f"**Disease risk:** {len(bin_models)} model(s): {', '.join(bin_models)}. "
-            f"Test AUC {bin_cfg['test_auc']:.3f}. Threshold set for {bin_cfg['threshold_rule']}."
-        )
+        st.markdown(f"**Disease risk:** EfficientNet-B0, test AUC {bin_cfg['test_auc']:.3f}. "
+                    f"Threshold set for {bin_cfg['threshold_rule']}.")
     if ml_cfg:
-        st.markdown(
-            f"**Disease type (DR / MH / ODC):** {len(ml_models)} model(s): {', '.join(ml_models)}. "
-            f"Test macro AUC {ml_cfg['test_macro_auc']:.3f}."
-        )
+        st.markdown(f"**Disease type (DR / MH / ODC):** EfficientNet-B0, test macro AUC {ml_cfg['test_macro_auc']:.3f}.")
     st.markdown("Data: [RFMiD](https://www.mdpi.com/2306-5729/6/2/14), three fundus cameras, 2009-2020.")
-    st.header("Privacy")
-    st.markdown("Uploaded images are processed in memory only and are **not saved**.")
+    st.header("Uploads")
+    st.markdown(f"- **One image at a time**, up to **{MAX_UPLOAD_MB} MB**\n"
+                "- Formats: JPG, PNG or TIFF\n"
+                f"- Larger photos are shrunk to {MAX_SIDE_PX} px on the longest side before analysis\n"
+                "- Images are processed in memory only and are **not saved**")
 
 samples = sorted(SAMPLE_DIR.glob("*.jpg")) if SAMPLE_DIR.exists() else []
 source = st.radio("Image", ["Try a sample image", "Upload my own"] if samples else ["Upload my own"], horizontal=True)
@@ -119,41 +111,49 @@ if source == "Try a sample image":
     raw = Image.open(choice).convert("RGB")
     st.caption("Sample images: RFMiD test set (Pachade et al., 2021). The label in the name is the experts' diagnosis.")
 else:
-    uploaded = st.file_uploader("Upload a retinal fundus photograph", type=["png", "jpg", "jpeg", "tif", "tiff"])
+    st.info(f"**Upload limit: one image, up to {MAX_UPLOAD_MB} MB** (JPG, PNG or TIFF). "
+            "Please upload a retinal fundus photograph; other kinds of photos will still get a score, but it will be meaningless.")
+    uploaded = st.file_uploader(f"Upload a retinal fundus photograph (max {MAX_UPLOAD_MB} MB)",
+                                type=["png", "jpg", "jpeg", "tif", "tiff"], accept_multiple_files=False)
     if uploaded is None:
-        st.info("Fundus photos are taken with a fundus camera and show the back of the eye (retina, optic disc and blood vessels). "
-                "Other kinds of photos will still get a score, but it will be meaningless.")
+        st.stop()
+    if uploaded.size > MAX_UPLOAD_MB * 1024 * 1024:
+        st.error(f"That file is {uploaded.size / 1024 / 1024:.1f} MB. The limit is {MAX_UPLOAD_MB} MB; please upload a smaller image.")
         st.stop()
     try:
-        raw = Image.open(uploaded).convert("RGB")
-    except UnidentifiedImageError:
-        st.error("That file couldn't be read as an image.")
+        raw = Image.open(uploaded)
+        raw.draft("RGB", (MAX_SIDE_PX, MAX_SIDE_PX))      # fast, low-memory decoding for large JPEGs
+        raw = raw.convert("RGB")
+    except Image.DecompressionBombError:
+        st.error("That image has too many pixels to process safely. Please upload a smaller version (under about 7000 x 7000 px).")
+        st.stop()
+    except (UnidentifiedImageError, OSError):
+        st.error("That file couldn't be read as an image. Please upload a JPG, PNG or TIFF.")
         st.stop()
 
+raw.thumbnail((MAX_SIDE_PX, MAX_SIDE_PX))
 size = (bin_cfg or ml_cfg)["img_size"]
 img = preprocess_image(raw, size)
-show_cam = st.toggle("Show where the model looked (Grad-CAM)", value=True)
+show_cam = st.toggle("Show where the model looked (heatmap)", value=True)
 
 col1, col2 = st.columns(2)
 col1.image(img.astype("uint8"), caption="Cropped and resized input", width="stretch")
 
-if bin_models:
-    p = float(ensemble_predict(bin_cfg, bin_models, img)[0])
-    refer = p >= bin_cfg["threshold"]
+if bin_model is not None:
+    probs, cams = run(bin_model, img)
+    p = float(probs[0])
     st.subheader("Disease risk")
     st.metric("Estimated probability of retinal disease", f"{p:.0%}")
     st.progress(min(max(p, 0.0), 1.0))
-    if refer:
+    if p >= bin_cfg["threshold"]:
         st.error(f"**Above the screening threshold ({bin_cfg['threshold']:.0%}).** In a screening setting this image would be flagged for review by an ophthalmologist.")
     else:
         st.success(f"**Below the screening threshold ({bin_cfg['threshold']:.0%}).** No disease pattern detected by the model. This does not rule out eye disease.")
     if show_cam:
-        from iluminado.gradcam import gradcam, overlay
-        name, model = best_model(bin_cfg, bin_models)
-        col2.image(overlay(img, gradcam(model, img)), caption=f"Grad-CAM ({name}): red = most influential", width="stretch")
+        col2.image(overlay(img, cams[..., 0]), caption="Heatmap: red = most influential for the disease-risk score", width="stretch")
 
-if ml_models:
-    probs = ensemble_predict(ml_cfg, ml_models, img)
+if ml_model is not None:
+    probs, _ = run(ml_model, img)
     st.subheader("Specific conditions")
     st.caption("Each condition is assessed independently; an eye can have more than one.")
     for j, (label, pj) in enumerate(zip(ml_cfg["labels"], probs)):

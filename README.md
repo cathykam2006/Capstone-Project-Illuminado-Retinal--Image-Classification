@@ -152,6 +152,7 @@ notebooks/
   04_disease_type_multilabel.ipynb  DR / MH / ODC + ensemble
 app/streamlit_app.py            demo app (sample images in app/samples)
 scripts/export_demo.py          packages a small model for deployment
+scripts/convert_tflite.py       converts it to TensorFlow Lite for a low-memory app
 data/                           RFMiD label CSVs
 models/                         trained models + ensemble JSON (added after training)
 tests/test_pipeline.py          synthetic-data tests (no dataset or GPU needed)
@@ -171,9 +172,13 @@ streamlit run app/streamlit_app.py
 ```
 
 **Deploy the demo (Streamlit Community Cloud)**
-1. In Colab, after notebooks 03 and 04, run `python scripts/export_demo.py`. It packages the EfficientNet-B0 model for each task (about 17 MB each; the full ensemble is too large for GitHub), recomputes that model's own thresholds on the validation set, adds four test-set sample images, and pins `app/requirements.txt` to the TensorFlow/Keras versions used for training.
-2. Unzip `iluminado-demo.zip` into the repo and push.
-3. On [share.streamlit.io](https://share.streamlit.io), create an app from this repo with main file `app/streamlit_app.py`, choosing Python 3.12 under *Advanced settings*.
+1. In Colab, after notebooks 03 and 04, run `python scripts/export_demo.py`. It packages the EfficientNet-B0 model for each task (the full ensemble is too large for GitHub), recomputes that model's own thresholds on the validation set and adds four test-set sample images. Unzip the result into the repo.
+2. Run `python scripts/convert_tflite.py` (needs TensorFlow). It converts both models to TensorFlow Lite, builds the heatmap into each model, and checks the converted outputs match the originals.
+3. Push, then on [share.streamlit.io](https://share.streamlit.io) create an app from this repo with main file `app/streamlit_app.py` and Python 3.12 under *Advanced settings*.
+
+**Why TensorFlow Lite:** full TensorFlow alone uses about 640 MB of memory, and the app peaked at about 1.3 GB, which crashed on free hosting. With TensorFlow Lite the app peaks at about 380 MB and starts in under a second, with identical predictions (max difference < 0.0001). The heatmap is the class activation map, which for this architecture (global average pooling followed by one dense layer) is mathematically identical to Grad-CAM, so no gradients are needed at serving time.
+
+**Upload limit:** one image at a time, up to 20 MB (set in `.streamlit/config.toml`); larger photos are shrunk to 2,048 px before analysis.
 
 The demo uses a single EfficientNet-B0 per task (disease-risk test AUC 0.976 vs 0.977 for the ensemble). Its exact test metrics are in `models/demo_test_metrics.json`.
 

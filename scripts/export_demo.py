@@ -142,14 +142,11 @@ def export_samples(project: Path, out: Path) -> None:
 
 
 def write_requirements(out: Path) -> None:
-    import keras
-    import tensorflow as tf
-
+    """The app runs on TensorFlow Lite (see scripts/convert_tflite.py), so it needs no TensorFlow."""
     (out / "app" / "requirements.txt").write_text(
-        "# Pinned to the versions that saved the models (written by scripts/export_demo.py)\n"
-        f"tensorflow-cpu=={tf.__version__}\nkeras=={keras.__version__}\n"
-        "streamlit>=1.50\nnumpy\npandas\npillow\nmatplotlib\nscikit-learn\n")
-    print(f"requirements pinned to tensorflow-cpu {tf.__version__}, keras {keras.__version__}")
+        "# The demo runs the models with TensorFlow Lite (ai-edge-litert), not full TensorFlow,\n"
+        "# to stay well inside free-hosting memory limits. See scripts/convert_tflite.py.\n"
+        "ai-edge-litert==2.3.0\nstreamlit>=1.50\nnumpy\npandas\npillow\nmatplotlib\n")
 
 
 def main():

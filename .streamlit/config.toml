@@ -1,0 +1,3 @@
+[server]
+# Per-file upload limit in MB (Streamlit's default is 200). Keep in sync with MAX_UPLOAD_MB in app/streamlit_app.py.
+maxUploadSize = 20

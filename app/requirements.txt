@@ -1,9 +1,8 @@
-# Pinned to the versions that saved the models (written by scripts/export_demo.py)
-tensorflow-cpu==2.21.0
-keras==3.13.2
+# The demo runs the models with TensorFlow Lite (ai-edge-litert), not full TensorFlow,
+# to stay well inside free-hosting memory limits. See scripts/convert_tflite.py.
+ai-edge-litert==2.3.0
 streamlit>=1.50
 numpy
 pandas
 pillow
 matplotlib
-scikit-learn

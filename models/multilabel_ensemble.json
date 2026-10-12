@@ -19,5 +19,6 @@
     0.5813501592163455
   ],
   "threshold_rule": "max F1 per disease on validation set",
-  "test_macro_auc": 0.9416707602504863
+  "test_macro_auc": 0.9416707602504863,
+  "tflite": "multilabel_efficientnet_b0.tflite"
 }
