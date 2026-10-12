@@ -17,7 +17,9 @@ def dhash(path: str, hash_size: int = 16) -> np.ndarray:
 
 def near_duplicate_pairs(paths, max_hamming: int = 6, chunk: int = 256) -> list[tuple[int, int, int]]:
     """All pairs (i, j, distance), i < j, whose hashes differ in at most max_hamming of 256 bits."""
-    H = np.stack([dhash(p) for p in paths])
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(16) as pool:
+        H = np.stack(list(pool.map(dhash, paths)))
     pairs = []
     for a in range(0, len(H), chunk):
         d = _POPCOUNT[H[a:a + chunk, None, :] ^ H[None, :, :]].sum(-1)

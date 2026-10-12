@@ -136,6 +136,35 @@ def cache_images(manifest: pd.DataFrame, cache_dir: str | os.PathLike, size: int
     return out
 
 
+def localize(manifest: pd.DataFrame, dst: str | os.PathLike = "/content/local_cache", workers: int = 32) -> pd.DataFrame:
+    """Copy the cached images to fast local disk once; return a manifest pointing at the copies.
+
+    On Colab, reading thousands of small files from Google Drive is slow
+    (each read waits on the network). Copying them in parallel once makes the
+    duplicate check take seconds and training many times faster. Files
+    already copied are skipped, so re-running is cheap.
+    """
+    import shutil
+    from concurrent.futures import ThreadPoolExecutor
+
+    dst = Path(dst)
+    out = manifest.copy()
+    targets = [str(dst / split / Path(p).name) for split, p in zip(manifest["split"], manifest["path"])]
+
+    def copy(pair):
+        src, tgt = pair
+        if not os.path.exists(tgt):
+            os.makedirs(os.path.dirname(tgt), exist_ok=True)
+            shutil.copyfile(src, tgt)
+
+    with ThreadPoolExecutor(workers) as pool:
+        for i, _ in enumerate(pool.map(copy, zip(manifest["path"], targets)), 1):
+            if i % 500 == 0 or i == len(targets):
+                print(f"  copied {i}/{len(targets)} images to local disk", flush=True)
+    out["path"] = targets
+    return out
+
+
 # ---------------------------------------------------------------- tf.data
 
 def make_dataset(paths, labels, img_size: int, batch_size: int, training: bool, seed: int = 42):
