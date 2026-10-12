@@ -7,5 +7,7 @@ matplotlib
 seaborn
 tabulate
 kagglehub
+datasets          # Hugging Face download (notebook 01 default)
+scipy
 streamlit>=1.40
 pytest

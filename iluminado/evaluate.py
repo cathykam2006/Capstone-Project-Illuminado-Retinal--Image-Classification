@@ -13,9 +13,22 @@ from sklearn.metrics import (average_precision_score, balanced_accuracy_score, c
                              f1_score, roc_auc_score, roc_curve)
 
 
-def predict(model, ds) -> np.ndarray:
-    """Predictions in dataset order (the dataset must NOT be shuffled)."""
-    return np.asarray(model.predict(ds, verbose=0), dtype=np.float64)
+def predict(model, ds, tta: bool = True) -> np.ndarray:
+    """Predictions in dataset order (the dataset must NOT be shuffled).
+
+    With tta=True the prediction is averaged over the image and its horizontal
+    and vertical flips (test-time augmentation): a cheap way to smooth out
+    predictions that depend on orientation, which a fundus photo has no
+    natural version of.
+    """
+    import tensorflow as tf
+
+    p = np.asarray(model.predict(ds, verbose=0), dtype=np.float64)
+    if not tta:
+        return p
+    for flip in (tf.image.flip_left_right, tf.image.flip_up_down):
+        p += np.asarray(model.predict(ds.map(lambda x, y, f=flip: (f(x), y)), verbose=0), dtype=np.float64)
+    return p / 3
 
 
 def threshold_for_sensitivity(y_true, y_prob, target: float = 0.90) -> float:
@@ -90,6 +103,28 @@ def bootstrap_ci(y_true, y_prob, metric=roc_auc_score, n: int = 1000, seed: int 
             continue
         stats.append(metric(y_true[idx], y_prob[idx]))
     return float(np.percentile(stats, 2.5)), float(np.percentile(stats, 97.5))
+
+
+def paired_bootstrap_diff(y_true, p_a, p_b, metric=roc_auc_score, n: int = 1000, seed: int = 42):
+    """metric(A) - metric(B), with a 95% CI from resampling the SAME images for both.
+
+    If the interval excludes 0, A is better (or worse) than B by more than
+    sampling noise. Used to check whether the ensemble really beats its best
+    single member; if not, the simpler single model is just as good.
+    """
+    rng = np.random.default_rng(seed)
+    y_true, p_a, p_b = np.asarray(y_true), np.asarray(p_a), np.asarray(p_b)
+    diffs = []
+    for _ in range(n):
+        idx = rng.integers(0, len(y_true), len(y_true))
+        yt = y_true[idx]
+        if (yt.ndim == 1 and len(np.unique(yt)) < 2) or (yt.ndim == 2 and (yt.min(0) == yt.max(0)).any()):
+            continue
+        diffs.append(metric(yt, p_a[idx]) - metric(yt, p_b[idx]))
+    d = float(metric(y_true, p_a) - metric(y_true, p_b))
+    lo, hi = float(np.percentile(diffs, 2.5)), float(np.percentile(diffs, 97.5))
+    verdict = "A clearly better" if lo > 0 else "A clearly worse" if hi < 0 else "no clear difference"
+    return d, lo, hi, verdict
 
 
 def ensemble(probs: dict, weights: dict | None = None) -> np.ndarray:

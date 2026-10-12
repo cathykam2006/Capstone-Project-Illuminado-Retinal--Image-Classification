@@ -121,7 +121,72 @@ def test_evaluation_helpers():
     assert np.allclose(M.positive_weights(np.array([1, 1, 1, 0])), [1 / 3])
 
 
+def test_huggingface_export(monkeypatch=None):
+    """fetch_hf on a fake in-memory mirror: images exported, labels parsed, sizes recorded."""
+    import datasets
+    from iluminado import download as DL
+
+    def fake_split(n, offset):
+        risk = [i % 2 for i in range(n)]
+        labels = ["DR, ODC" if r and i % 4 == 1 else ("MH" if r else "") for i, r in enumerate(risk)]
+        imgs = [fake_fundus(200 if r else 90, 600, 400) for r in risk]
+        return datasets.Dataset.from_dict({"image": imgs, "Disease_Risk": risk, "label": labels},
+                                          features=datasets.Features({"image": datasets.Image(),
+                                                                      "Disease_Risk": datasets.Value("int64"),
+                                                                      "label": datasets.Value("string")}))
+    fake = datasets.DatasetDict({"train": fake_split(8, 0), "validation": fake_split(4, 0), "test": fake_split(4, 0)})
+    orig = datasets.load_dataset
+    datasets.load_dataset = lambda *a, **k: fake
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            img_root, label_dir = DL.fetch_hf(tmp, max_side=300, log_every=0)
+            DL.fetch_hf(tmp, max_side=300, log_every=0)          # second run: skips, keeps sizes
+            manifest = D.build_manifest(img_root, label_dir)
+            assert manifest["split"].value_counts().to_dict() == {"train": 8, "val": 4, "test": 4}
+            row = manifest[(manifest.split == "train") & (manifest.ID == 2)].iloc[0]
+            assert row.DR == 1 and row.ODC == 1 and row.MH == 0 and row.Disease_Risk == 1
+            assert manifest.loc[manifest.Disease_Risk == 0, D.TARGET_DISEASES].to_numpy().sum() == 0
+            info = pd.read_csv(Path(label_dir) / "image_info.csv")
+            assert len(info) == 16 and (info.orig_w == 600).all()
+            with Image.open(manifest.path.iloc[0]) as im:
+                assert max(im.size) == 300
+    finally:
+        datasets.load_dataset = orig
+    try:
+        DL.label_frame([0], ["DR"])
+        raise AssertionError("healthy image with a disease label should be rejected")
+    except ValueError:
+        pass
+
+
+def test_audits_and_baseline():
+    from iluminado import audit as A, baseline as B
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        paths = []
+        for i, seed in enumerate([1, 2, 2, 3]):                          # images 1 and 2 are identical
+            arr = np.random.default_rng(seed).integers(0, 255, (60, 60, 3), dtype=np.uint8)
+            p = tmp / f"{i}.png"; Image.fromarray(arr).resize((240, 240)).save(p); paths.append(str(p))
+        m = pd.DataFrame({"split": ["train", "train", "test", "val"], "ID": [1, 2, 3, 4], "path": paths})
+        rep = A.duplicate_report(m)
+        assert len(rep) == 1 and rep.iloc[0]["crosses splits"]           # images 1 and 2 are identical
+        assert A.camera_group(2144, 1424) == "2144x1424" and A.camera_group(1024, 768) == "4:3 camera"
+        summary, p, v = A.camera_vs_label(pd.Series(["a"] * 50 + ["b"] * 50), pd.Series([1] * 50 + [0] * 50))
+        assert v > 0.9
+        X = B.features_for(paths, size=64)
+        assert X.shape == (4, 34) and np.isfinite(X).all()
+    rng = np.random.default_rng(0)
+    Xtr, ytr = rng.normal(size=(60, 34)), np.r_[np.zeros(30), np.ones(30)]
+    Xtr[ytr == 1, 0] += 3
+    (pe,) = B.fit_predict(Xtr, ytr, [Xtr])
+    assert pe.shape == (60, 1) and E.binary_report(ytr, pe[:, 0], 0.5)["AUC"] > 0.9
+    d, lo, hi, verdict = E.paired_bootstrap_diff(ytr, pe[:, 0], rng.random(60), n=200)
+    assert d > 0 and lo > 0 and verdict == "A clearly better"
+
+
 if __name__ == "__main__":
     test_evaluation_helpers()
+    test_huggingface_export()
+    test_audits_and_baseline()
     test_end_to_end()
     print("All tests passed.")

@@ -19,7 +19,10 @@ I had implantable collamer lens (ICL) surgery and saw first-hand how much imagin
 - About **79% of images show disease**, so "always predict diseased" is 79% accurate. Accuracy alone is therefore a misleading metric here.
 - Images often carry **several labels**: 458 training images have two or more diseases.
 
-The label CSVs are in `data/`. The images (~40 GB) are not in this repo; notebook 01 downloads them from Kaggle.
+- **No near-duplicate images across splits.** Every image was fingerprinted with a perceptual hash and no nearly identical pairs were found between training, validation and test, so test scores aren't inflated by copies of training images. Notebook 02 re-runs this check.
+- Notebook 02 also tests whether the **camera** (inferred from image size) predicts the label, which would let a model take a shortcut.
+
+The official label CSVs are in `data/`. The images (~40 GB at full size) are not in this repo; notebook 01 downloads them from a public Hugging Face mirror with no login needed (Kaggle and local copies also work).
 
 ## Approach
 
@@ -34,8 +37,10 @@ fundus photo ──► crop to fundus, square, resize ──► 3 CNN backbones 
 2. **Models.** ImageNet-pretrained backbones with a new sigmoid head. Training is two-stage: the head first, then the top 30% of the backbone at a low learning rate. Augmentation (flips, 90° rotations, brightness, contrast) is fresh every epoch.
 3. **Imbalance.** A class-weighted loss for both tasks.
 4. **Model selection.** Early stopping, ensemble weights and decision thresholds all use the **validation** set. The test set is used once, at the end.
-5. **Thresholds.** For disease risk, the threshold is set to catch 90% of diseased eyes on validation (screening setting, where a miss costs more than a false alarm). For DR/MH/ODC, each disease gets the threshold that maximises F1 on validation.
-6. **Explainability.** Grad-CAM heatmaps show which regions of the retina drove each prediction.
+5. **Test-time augmentation.** Validation and test predictions are averaged over each image and its horizontal and vertical flips.
+6. **Thresholds.** For disease risk, the threshold is set to catch 90% of diseased eyes on validation (screening setting, where a miss costs more than a false alarm). For DR/MH/ODC, each disease gets the threshold that maximises F1 on validation.
+7. **Is the complexity earning its keep?** Every model is compared against a classical baseline (34 simple image statistics with logistic regression, random forest and gradient boosting), and a paired bootstrap tests whether the ensemble beats its best single model by more than noise.
+8. **Explainability.** Grad-CAM heatmaps show which regions of the retina drove each prediction.
 
 ## Results
 
@@ -49,7 +54,10 @@ fundus photo ──► crop to fundus, square, resize ──► 3 CNN backbones 
 | DenseNet-121 | | | | | |
 | ConvNeXt-Tiny | | | | | |
 | **Ensemble** | | | | | |
+| Classical baseline (34 image statistics) | | | | | |
 | Always "diseased" | 0.500 | 1.000 | 0.000 | 0.791 | — |
+
+**Ensemble vs best single model** (paired bootstrap on the test set): AUC difference ___ (95% CI ___ to ___), verdict: ___.
 
 **Disease type (ensemble, per disease)**
 
@@ -84,18 +92,23 @@ fundus photo ──► crop to fundus, square, resize ──► 3 CNN backbones 
 | 14 | Absolute `/Users/...` paths, `cd` cells, no requirements | Not reproducible | Config cells, `requirements.txt`, runs on Colab |
 | 15 | README images pointed at `localhost` | Broken for everyone else | Images stored in the repo |
 | 16 | "SE-ResNeXt" was plain ResNeXt-50 | Mislabelled | Replaced with clearly named backbones |
+| 17 | No check for duplicate images or camera shortcuts | Leakage or shortcut learning would go unnoticed | Perceptual-hash duplicate check (none found across splits) and camera-vs-label test |
+| 18 | No simpler model to compare against | No way to tell whether deep learning was needed | Classical 34-feature baseline and a paired test of ensemble vs best single model |
 
 ## Repository layout
 
 ```
 iluminado/                      shared code used by notebooks and app
   data.py                       manifest, fundus crop, caching, tf.data pipeline
+  download.py                   Hugging Face download with label parsing
+  audit.py                      near-duplicate and camera-shortcut checks
+  baseline.py                   34-feature classical baseline
   models.py                     backbones, weighted loss, two-stage training
-  evaluate.py                   thresholds, clinical metrics, bootstrap CIs, ensembling
+  evaluate.py                   thresholds, clinical metrics, bootstrap CIs, TTA, ensembling
   gradcam.py                    Grad-CAM heatmaps
 notebooks/
   01_data_preparation.ipynb     download, manifest, crop + cache
-  02_eda.ipynb                  balance, baseline, co-occurrence, camera check
+  02_eda.ipynb                  balance, baseline, co-occurrence, camera and duplicate checks
   03_disease_risk_binary.ipynb  healthy vs diseased + ensemble
   04_disease_type_multilabel.ipynb  DR / MH / ODC + ensemble
 app/streamlit_app.py            demo app
@@ -109,7 +122,7 @@ tests/test_pipeline.py          synthetic-data tests (no dataset or GPU needed)
 **Train (Google Colab, free GPU)**
 1. Open each notebook in Colab (File → Open notebook → GitHub → this repo) and set Runtime → Change runtime type → GPU.
 2. Run 01 → 02 → 03 → 04. Outputs are saved to `MyDrive/iluminado/`, so a disconnect doesn't lose finished models.
-3. Notebook 01 downloads RFMiD with `kagglehub` (needs a free Kaggle API token), or point it at your own copy.
+3. Notebook 01 downloads RFMiD from Hugging Face (no account needed, about 8 GB). It can also use Kaggle or a copy you already have.
 
 **Run the app**
 ```bash
