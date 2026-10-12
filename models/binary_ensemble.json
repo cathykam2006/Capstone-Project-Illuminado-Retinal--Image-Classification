@@ -1,0 +1,17 @@
+{
+  "task": "binary",
+  "img_size": 384,
+  "labels": [
+    "Disease_Risk"
+  ],
+  "models": {
+    "efficientnet_b0": "binary_efficientnet_b0.keras"
+  },
+  "weights": {
+    "efficientnet_b0": 1.0
+  },
+  "note": "Demo: EfficientNet-B0 only (the full ensemble is too large for GitHub).",
+  "threshold": 0.4330596327781677,
+  "threshold_rule": "90% sensitivity on validation set",
+  "test_auc": 0.9757388944605039
+}

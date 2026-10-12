@@ -1,0 +1,23 @@
+{
+  "task": "multilabel",
+  "img_size": 384,
+  "labels": [
+    "DR",
+    "MH",
+    "ODC"
+  ],
+  "models": {
+    "efficientnet_b0": "multilabel_efficientnet_b0.keras"
+  },
+  "weights": {
+    "efficientnet_b0": 1.0
+  },
+  "note": "Demo: EfficientNet-B0 only (the full ensemble is too large for GitHub).",
+  "thresholds": [
+    0.7293513903178669,
+    0.46916593276094976,
+    0.5813501592163455
+  ],
+  "threshold_rule": "max F1 per disease on validation set",
+  "test_macro_auc": 0.9416707602504863
+}

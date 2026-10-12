@@ -37,6 +37,30 @@ SAMPLES = [("healthy", lambda d: d.Disease_Risk == 0),
            ("optic_disc_cupping", lambda d: (d.ODC == 1) & (d.DR == 0) & (d.MH == 0))]
 
 
+def flat_layers(model):
+    import keras
+    for layer in model.layers:
+        if isinstance(layer, keras.Model):
+            yield from flat_layers(layer)
+        else:
+            yield layer
+
+
+def real_val_images(manifest: pd.DataFrame, size: int, n: int = 48):
+    """Up to n validation images, from Drive or from a local cache made earlier in this session."""
+    from PIL import Image
+    imgs = []
+    for path, image_id in manifest.loc[manifest.split == "val", ["path", "ID"]].itertuples(index=False):
+        for cand in (path, f"/content/local_cache_512/val/{image_id}.jpg", f"/content/local_cache/val/{Path(path).name}"):
+            if Path(cand).exists():
+                with Image.open(cand) as im:
+                    imgs.append(np.asarray(im.convert("RGB").resize((size, size), Image.BILINEAR), dtype="float32"))
+                break
+        if len(imgs) >= n:
+            break
+    return np.stack(imgs) if imgs else None
+
+
 def export_models(project: Path, out: Path) -> dict:
     import keras
     from sklearn.metrics import roc_auc_score
@@ -49,12 +73,24 @@ def export_models(project: Path, out: Path) -> dict:
         cfg_in = json.loads((project / "models" / f"{task}_ensemble.json").read_text())
         size = int(cfg_in["img_size"])
         trained = M.load(str(project / "models" / f"{task}_{BACKBONE}.keras"))
-        clean = M.build_model(BACKBONE, size, len(labels), weights=None)
+        # Build with weights="imagenet": Keras's EfficientNet adds an extra input-scaling
+        # layer only in that mode, so the graph must be built the same way as in training.
+        # The downloaded ImageNet weights are then overwritten by the trained ones.
+        clean = M.build_model(BACKBONE, size, len(labels), weights="imagenet")
+        if [type(l).__name__ for l in flat_layers(trained)] != [type(l).__name__ for l in flat_layers(clean)]:
+            raise RuntimeError(f"{task}: rebuilt model has a different structure from the trained model")
         clean.set_weights(trained.get_weights())
-        x = np.random.default_rng(0).uniform(0, 255, (2, size, size, 3)).astype("float32")
-        diff = float(np.abs(trained.predict(x, verbose=0).astype("float32") - clean.predict(x, verbose=0)).max())
-        if diff > 0.02:
-            raise RuntimeError(f"{task}: float32 copy disagrees with the trained model (max diff {diff:.3f})")
+        x = real_val_images(manifest, size)
+        if x is None:
+            raise RuntimeError("No validation images found to verify the exported model; run notebook 03 or 04 in this session first.")
+        a_, b_ = trained.predict(x, verbose=0).astype("float32"), clean.predict(x, verbose=0)
+        mean_diff, max_diff = float(np.abs(a_ - b_).mean()), float(np.abs(a_ - b_).max())
+        print(f"{task}: float32 copy vs trained model on {len(x)} real validation images: "
+              f"mean difference {mean_diff:.4f}, max {max_diff:.4f}")
+        # Half vs full precision should agree to about 0.01 on real images; a real
+        # weight-mapping error gives differences of 0.3 or more.
+        if mean_diff > 0.02 or max_diff > 0.1:
+            raise RuntimeError(f"{task}: the float32 copy does not reproduce the trained model; not exporting it.")
         fname = f"{task}_{BACKBONE}.keras"
         clean.save(out / "models" / fname)
 

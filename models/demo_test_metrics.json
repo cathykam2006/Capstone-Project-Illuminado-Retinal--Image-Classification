@@ -1,0 +1,14 @@
+{
+  "binary": {
+    "AUC": 0.976,
+    "sensitivity": 0.899,
+    "specificity": 0.963,
+    "PPV": 0.989,
+    "NPV": 0.717
+  },
+  "multilabel": {
+    "DR": 0.975,
+    "MH": 0.971,
+    "ODC": 0.879
+  }
+}
