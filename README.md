@@ -2,6 +2,8 @@
 
 Transfer-learning ensemble that screens retinal fundus photographs for disease, and flags three specific conditions: diabetic retinopathy (DR), media haze (MH) and optic disc cupping (ODC). Built on the public RFMiD dataset, with a Streamlit demo app.
 
+**Live demo:** _add your Streamlit link here_
+
 > **Version 2 (2026).** This is a full rebuild of my 2023 data science capstone. A code review found that the original training pipeline paired images with the wrong labels, so the original results were not valid. Every issue found and how it was fixed is listed under [What changed in v2](#what-changed-in-v2).
 
 **Key results (held-out test set, 640 images)**
@@ -148,7 +150,8 @@ notebooks/
   02_eda.ipynb                  balance, baseline, co-occurrence, camera and duplicate checks
   03_disease_risk_binary.ipynb  healthy vs diseased + ensemble
   04_disease_type_multilabel.ipynb  DR / MH / ODC + ensemble
-app/streamlit_app.py            demo app
+app/streamlit_app.py            demo app (sample images in app/samples)
+scripts/export_demo.py          packages a small model for deployment
 data/                           RFMiD label CSVs
 models/                         trained models + ensemble JSON (added after training)
 tests/test_pipeline.py          synthetic-data tests (no dataset or GPU needed)
@@ -161,13 +164,18 @@ tests/test_pipeline.py          synthetic-data tests (no dataset or GPU needed)
 2. Run 01 → 02 → 03 → 04. Outputs are saved to `MyDrive/iluminado/`, so a disconnect doesn't lose finished models.
 3. Notebook 01 downloads RFMiD from Hugging Face (no account needed, about 8 GB). It can also use Kaggle or a copy you already have.
 
-**Run the app**
+**Run the app locally**
 ```bash
-pip install -r requirements.txt
-# copy *.keras and *_ensemble.json from MyDrive/iluminado/models/ into models/
+pip install -r app/requirements.txt
 streamlit run app/streamlit_app.py
 ```
-GitHub rejects files over 100 MB. EfficientNet-B0 and DenseNet-121 fit; ConvNeXt-Tiny (~110 MB) needs [Git LFS](https://git-lfs.com/) or can be left out. The app skips missing models and reweights the rest.
+
+**Deploy the demo (Streamlit Community Cloud)**
+1. In Colab, after notebooks 03 and 04, run `python scripts/export_demo.py`. It packages the EfficientNet-B0 model for each task (about 17 MB each; the full ensemble is too large for GitHub), recomputes that model's own thresholds on the validation set, adds four test-set sample images, and pins `app/requirements.txt` to the TensorFlow/Keras versions used for training.
+2. Unzip `iluminado-demo.zip` into the repo and push.
+3. On [share.streamlit.io](https://share.streamlit.io), create an app from this repo with main file `app/streamlit_app.py`, choosing Python 3.12 under *Advanced settings*.
+
+The demo uses a single EfficientNet-B0 per task (disease-risk test AUC 0.976 vs 0.977 for the ensemble). Its exact test metrics are in `models/demo_test_metrics.json`.
 
 **Tests**
 ```bash

@@ -20,6 +20,7 @@ from PIL import Image, UnidentifiedImageError
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 MODEL_DIR = ROOT / "models"
+SAMPLE_DIR = Path(__file__).resolve().parent / "samples"
 
 from iluminado.data import preprocess_image  # noqa: E402  (same preprocessing as training)
 
@@ -78,28 +79,37 @@ with st.sidebar:
     st.header("About the models")
     if bin_cfg:
         st.markdown(
-            f"**Disease risk:** ensemble of {len(bin_models)} model(s): {', '.join(bin_models)}. "
+            f"**Disease risk:** {len(bin_models)} model(s): {', '.join(bin_models)}. "
             f"Test AUC {bin_cfg['test_auc']:.3f}. Threshold set for {bin_cfg['threshold_rule']}."
         )
     if ml_cfg:
         st.markdown(
-            f"**Disease type (DR / MH / ODC):** ensemble of {len(ml_models)} model(s). "
+            f"**Disease type (DR / MH / ODC):** {len(ml_models)} model(s): {', '.join(ml_models)}. "
             f"Test macro AUC {ml_cfg['test_macro_auc']:.3f}."
         )
     st.markdown("Data: [RFMiD](https://www.mdpi.com/2306-5729/6/2/14), three fundus cameras, 2009-2020.")
     st.header("Privacy")
     st.markdown("Uploaded images are processed in memory only and are **not saved**.")
 
-uploaded = st.file_uploader("Upload a retinal fundus photograph", type=["png", "jpg", "jpeg", "tif", "tiff"])
-if uploaded is None:
-    st.info("Fundus photos are taken with a fundus camera and show the back of the eye (retina, optic disc and blood vessels).")
-    st.stop()
+samples = sorted(SAMPLE_DIR.glob("*.jpg")) if SAMPLE_DIR.exists() else []
+source = st.radio("Image", ["Try a sample image", "Upload my own"] if samples else ["Upload my own"], horizontal=True)
 
-try:
-    raw = Image.open(uploaded).convert("RGB")
-except UnidentifiedImageError:
-    st.error("That file couldn't be read as an image.")
-    st.stop()
+if source == "Try a sample image":
+    label = lambda p: p.stem.rsplit("_test", 1)[0].replace("_", " ").capitalize() + f" (test image {p.stem.rsplit('_test', 1)[-1]})"
+    choice = st.selectbox("Sample from the RFMiD test set (not used in training)", samples, format_func=label)
+    raw = Image.open(choice).convert("RGB")
+    st.caption("Sample images: RFMiD test set (Pachade et al., 2021). The label in the name is the experts' diagnosis.")
+else:
+    uploaded = st.file_uploader("Upload a retinal fundus photograph", type=["png", "jpg", "jpeg", "tif", "tiff"])
+    if uploaded is None:
+        st.info("Fundus photos are taken with a fundus camera and show the back of the eye (retina, optic disc and blood vessels). "
+                "Other kinds of photos will still get a score, but it will be meaningless.")
+        st.stop()
+    try:
+        raw = Image.open(uploaded).convert("RGB")
+    except UnidentifiedImageError:
+        st.error("That file couldn't be read as an image.")
+        st.stop()
 
 size = (bin_cfg or ml_cfg)["img_size"]
 img = preprocess_image(raw, size)

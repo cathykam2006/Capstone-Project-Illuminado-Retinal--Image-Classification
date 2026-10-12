@@ -1,0 +1,9 @@
+# Overwritten with exact pins by scripts/export_demo.py
+tensorflow-cpu
+keras
+streamlit>=1.50
+numpy
+pandas
+pillow
+matplotlib
+scikit-learn
