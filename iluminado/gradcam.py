@@ -11,8 +11,8 @@ import tensorflow as tf
 
 
 def _split_model(model):
-    names = [layer.name for layer in model.layers]
-    idx = names.index("backbone")
+    from iluminado.models import get_backbone
+    idx = model.layers.index(get_backbone(model))
     before = model.layers[1:idx]       # preprocessing layers (if any)
     backbone = model.layers[idx]
     after = model.layers[idx + 1:]     # gap, dropout, head

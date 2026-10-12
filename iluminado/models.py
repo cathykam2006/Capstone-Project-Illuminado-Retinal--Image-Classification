@@ -18,13 +18,13 @@ IMAGENET_VAR = [(0.229 * 255) ** 2, (0.224 * 255) ** 2, (0.225 * 255) ** 2]
 
 def _efficientnet(cls):
     def build(shape, weights):
-        return cls(include_top=False, weights=weights, input_shape=shape, name="backbone"), []
+        return cls(include_top=False, weights=weights, input_shape=shape), []
     return build
 
 
 def _convnext(cls):
     def build(shape, weights):
-        return cls(include_top=False, weights=weights, input_shape=shape, include_preprocessing=True, name="backbone"), []
+        return cls(include_top=False, weights=weights, input_shape=shape, include_preprocessing=True), []
     return build
 
 
@@ -32,7 +32,7 @@ def _densenet(cls):
     # DenseNet expects "torch" style input: scale to 0-1, then ImageNet mean/std.
     def build(shape, weights):
         pre = [layers.Normalization(mean=IMAGENET_MEAN, variance=IMAGENET_VAR, name="imagenet_norm")]
-        return cls(include_top=False, weights=weights, input_shape=shape, name="backbone"), pre
+        return cls(include_top=False, weights=weights, input_shape=shape), pre
     return build
 
 
@@ -102,13 +102,25 @@ def build_model(backbone: str, img_size: int, n_outputs: int, weights: str | Non
     return keras.Model(inputs, outputs, name=f"{backbone}_{n_outputs}out")
 
 
+def get_backbone(model: keras.Model):
+    """The pretrained network inside our model (the only nested Model layer).
+
+    Found by type rather than by name, because renaming a Keras application
+    changes the pretrained-weights filename it downloads.
+    """
+    nested = [layer for layer in model.layers if isinstance(layer, keras.Model)]
+    if len(nested) != 1:
+        raise ValueError(f"Expected exactly one backbone, found {[l.name for l in nested]}")
+    return nested[0]
+
+
 def unfreeze_top(model: keras.Model, fraction: float = 0.3) -> None:
     """Unfreeze the top `fraction` of backbone layers for fine-tuning.
 
     BatchNorm layers stay frozen: with small batches their statistics get noisy
     and wreck the pretrained features.
     """
-    base = model.get_layer("backbone")
+    base = get_backbone(model)
     base.trainable = True
     cutoff = int(len(base.layers) * (1 - fraction))
     for i, layer in enumerate(base.layers):
