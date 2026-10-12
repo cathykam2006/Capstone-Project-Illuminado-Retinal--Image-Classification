@@ -1,0 +1,11 @@
+tensorflow>=2.16,<3   # Keras 3
+numpy
+pandas
+scikit-learn
+pillow
+matplotlib
+seaborn
+tabulate
+kagglehub
+streamlit>=1.40
+pytest

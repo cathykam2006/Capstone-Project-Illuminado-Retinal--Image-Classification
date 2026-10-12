@@ -1,0 +1,14 @@
+# Images and training outputs (RFMiD images are ~40 GB; never commit them)
+work/
+cache_*/
+*.png.bak
+users_uploads/
+
+# Python / Jupyter
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.pytest_cache/
+
+# OS
+.DS_Store
