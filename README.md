@@ -22,7 +22,9 @@ The WHO estimates that at least 2.2 billion people live with vision impairment, 
 
 I had implantable collamer lens (ICL) surgery and saw first-hand how much imaging and software contribute to diagnosis. This project is my attempt to apply data science to that problem.
 
-**Scope:** this is a research prototype trained on 3,200 images. It is not a medical device and has not been clinically validated.
+**Scope**: this is a research prototype trained on 3,200 images. It is not a medical device and has not been clinically validated. Even so, the results are encouraging: on held-out test images it detects retinal disease with an AUC of 0.977, so I believe it can be refined into a tool that eye clinics and hospitals could adopt at scale.
+
+**Next step**: learn continuously from new data. The ideal next step is a pipeline that keeps improving the model as clinics contribute new photographs. Each image would be collected with patient consent and labelled by an ophthalmologist. The model would then be retrained periodically, and each new version would be tested against held-out data before it replaced the current one. This would let the model learn from more cameras, populations and rare conditions over time, while making sure every update is an improvement.
 
 ## Dataset
 
