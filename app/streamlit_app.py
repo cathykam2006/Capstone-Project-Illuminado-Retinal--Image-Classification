@@ -66,18 +66,22 @@ def overlay(img: np.ndarray, cam: np.ndarray, alpha: float = 0.4) -> np.ndarray:
 
 
 # ------------------------------------------------------------------- page
-st.title("Iluminado - Retinal Disease Screening")
-st.markdown("<p style='font-size:1.05rem; color:gray; margin-top:-0.8rem;'>Created by Cathy Kam</p>", unsafe_allow_html=True)
+st.markdown(
+    "<h1 style='font-size:clamp(1.15rem, 4.6vw, 2rem); white-space:nowrap; margin-bottom:0; padding-bottom:0;'>"
+    "Iluminado - Retinal Disease Screening</h1>"
+    "<p style='font-size:1rem; color:gray; margin-top:0.2rem;'>Created by Cathy Kam</p>",
+    unsafe_allow_html=True,
+)
 
 st.markdown("""
-#### What this dashboard is for
+##### What this dashboard is for
 Iluminado reads a **retinal fundus photograph** (a picture of the back of the eye) and estimates:
 - the **probability that the eye shows signs of retinal disease**, and
 - whether it shows signs of three specific conditions: **diabetic retinopathy**, **media haze** and **optic disc cupping**.
 
 A heatmap shows **which part of the retina drove the prediction**, so the result can be checked rather than taken on trust.
 
-#### What I want to achieve
+##### What I want to achieve
 The WHO estimates that at least 1 billion people live with vision impairment that could have been prevented or has yet to be addressed, often because there are too few eye specialists. Fundus photos can be taken by trained non-specialists with portable cameras. My goal is a **low-cost first screening step** that helps decide **who should see an ophthalmologist first**, so scarce specialist time goes to the people who need it most. I also wanted it to be **honest about its limits**: every number below comes from images the model never saw during training.
 """)
 
