@@ -10,8 +10,15 @@ deploy a subset (for example, leave out a model too large for GitHub).
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
+
+# Keep TensorFlow lean on small cloud servers (fewer threads = less memory, no thread oversubscription)
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+os.environ.setdefault("OMP_NUM_THREADS", "2")
+os.environ.setdefault("TF_NUM_INTRAOP_THREADS", "2")
+os.environ.setdefault("TF_NUM_INTEROP_THREADS", "1")
 
 import numpy as np
 import streamlit as st
@@ -26,7 +33,7 @@ from iluminado.data import preprocess_image  # noqa: E402  (same preprocessing a
 
 DISEASE_NAMES = {"DR": "Diabetic retinopathy", "MH": "Media haze", "ODC": "Optic disc cupping"}
 
-st.set_page_config(page_title="Iluminado", page_icon="👁️", layout="centered")
+st.set_page_config(page_title="Iluminado - Retinal Disease Screening", page_icon="👁️", layout="centered")
 
 
 @st.cache_resource(show_spinner="Loading models…")
@@ -35,6 +42,12 @@ def load_ensemble(task: str):
     cfg_path = MODEL_DIR / f"{task}_ensemble.json"
     if not cfg_path.exists():
         return None, {}
+    import tensorflow as tf
+    try:
+        tf.config.threading.set_intra_op_parallelism_threads(2)
+        tf.config.threading.set_inter_op_parallelism_threads(1)
+    except RuntimeError:
+        pass   # already initialised by the other task's load
     from iluminado.models import load
 
     cfg = json.loads(cfg_path.read_text())
@@ -45,7 +58,8 @@ def load_ensemble(task: str):
 
 def ensemble_predict(cfg, models, img: np.ndarray) -> np.ndarray:
     w = np.array([cfg["weights"][n] for n in models])
-    preds = np.stack([m.predict(img[None], verbose=0)[0] for m in models.values()])
+    # Calling the model directly is lighter than model.predict() for a single image
+    preds = np.stack([np.asarray(m(img[None], training=False))[0] for m in models.values()])
     return (w / w.sum()) @ preds
 
 
@@ -55,15 +69,20 @@ def best_model(cfg, models):
 
 
 # ------------------------------------------------------------------- page
-st.title("Iluminado")
-st.caption("Retinal fundus photo screening · research prototype")
+st.title("Iluminado - Retinal Disease Screening")
+st.markdown("<p style='font-size:1.05rem; color:gray; margin-top:-0.8rem;'>Created by Cathy Kam</p>", unsafe_allow_html=True)
 
-st.warning(
-    "**Not a medical device.** This is a student research project trained on a public dataset of "
-    "3,200 images. It has not been clinically validated and must not be used to make decisions about "
-    "anyone's eyes. If you have concerns about your vision, see an eye care professional.",
-    icon="⚠️",
-)
+st.markdown("""
+#### What this dashboard is for
+Iluminado reads a **retinal fundus photograph** (a picture of the back of the eye) and estimates:
+- the **probability that the eye shows signs of retinal disease**, and
+- whether it shows signs of three specific conditions: **diabetic retinopathy**, **media haze** and **optic disc cupping**.
+
+A heatmap shows **which part of the retina drove the prediction**, so the result can be checked rather than taken on trust.
+
+#### What I want to achieve
+The WHO estimates that at least 1 billion people live with vision impairment that could have been prevented or has yet to be addressed, often because there are too few eye specialists. Fundus photos can be taken by trained non-specialists with portable cameras. My goal is a **low-cost first screening step** that helps decide **who should see an ophthalmologist first**, so scarce specialist time goes to the people who need it most. I also wanted it to be **honest about its limits**: every number below comes from images the model never saw during training.
+""")
 
 bin_cfg, bin_models = load_ensemble("binary")
 ml_cfg, ml_models = load_ensemble("multilabel")
@@ -142,3 +161,6 @@ if ml_models:
         st.markdown(f"**{DISEASE_NAMES.get(label, label)} ({label})**: {pj:.0%} {flag}")
         st.progress(float(min(max(pj, 0.0), 1.0)))
     st.caption("The model only checks these three conditions; RFMiD labels 45, so other diseases are not assessed here.")
+
+st.divider()
+st.caption("Research prototype trained on 3,200 public images (RFMiD); not clinically validated or a medical device.")
