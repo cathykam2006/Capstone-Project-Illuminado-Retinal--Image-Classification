@@ -16,13 +16,17 @@ Transfer-learning ensemble that screens retinal fundus photographs for disease, 
 | vs. simple-statistics baseline | **+0.08 to +0.11 AUC**, confirming deep learning is needed |
 | vs. v1 (2023) | v1 was at coin-flip level (validation AUC ≈ 0.5) because of a label-alignment bug |
 
+**Why the model is tuned to accept some false alarms.** In eye screening, the two possible mistakes have very different costs. A false alarm (a healthy eye flagged for review) costs a follow-up appointment. A missed case (a diseased eye called healthy) can mean disease goes untreated until vision is permanently lost. So, as in hospital screening programmes and clinical studies, the decision threshold was deliberately set to catch at least 90% of diseased eyes, accepting more false alarms in return. On the test set this trade-off held up: 91% of diseased eyes were caught, at the cost of 6 false alarms among 134 healthy eyes.
+
 ## Why this project
 
 The WHO estimates that at least 2.2 billion people live with vision impairment, and that at least 1 billion of those cases could have been prevented or have yet to be addressed ([WHO](https://www.who.int/news-room/fact-sheets/detail/blindness-and-visual-impairment)). A major barrier is the shortage of trained eye care providers. Automated screening of fundus photos, which can be taken with portable cameras by trained non-specialists, is one way to prioritise who needs an ophthalmologist first.
 
 I had implantable collamer lens (ICL) surgery and saw first-hand how much imaging and software contribute to diagnosis. This project is my attempt to apply data science to that problem.
 
-**Scope:** this is a research prototype trained on 3,200 images. It is not a medical device and has not been clinically validated.
+**Scope:** this is a research prototype trained on 3,200 images. It is not a medical device and has not been clinically validated. Even so, the results are encouraging: on held-out test images it detects retinal disease with an AUC of 0.977, so I believe it can be refined into a tool that eye clinics and hospitals could adopt at scale.
+
+**Next step: learn continuously from new data.** The ideal next step is a pipeline that keeps improving the model as clinics contribute new photographs. Each image would be collected with patient consent and labelled by an ophthalmologist. The model would then be retrained periodically, and each new version would be tested against held-out data before it replaced the current one. This would let the model learn from more cameras, populations and rare conditions over time, while making sure every update is an improvement.
 
 ## Dataset
 
