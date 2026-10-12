@@ -4,6 +4,16 @@ Transfer-learning ensemble that screens retinal fundus photographs for disease, 
 
 > **Version 2 (2026).** This is a full rebuild of my 2023 data science capstone. A code review found that the original training pipeline paired images with the wrong labels, so the original results were not valid. Every issue found and how it was fixed is listed under [What changed in v2](#what-changed-in-v2).
 
+**Key results (held-out test set, 640 images)**
+
+| Task | Result |
+|---|---|
+| Healthy vs diseased | **AUC 0.977** (95% CI 0.966–0.986); catches 91% of diseased eyes with 6 false alarms out of 134 healthy eyes |
+| Diabetic retinopathy / Media haze | **AUC 0.979 / 0.975** |
+| Optic disc cupping | AUC 0.898; the hardest condition, missed most often |
+| vs. simple-statistics baseline | **+0.08 to +0.11 AUC**, confirming deep learning is needed |
+| vs. v1 (2023) | v1 was at coin-flip level (validation AUC ≈ 0.5) because of a label-alignment bug |
+
 ## Why this project
 
 The WHO estimates that at least 2.2 billion people live with vision impairment, and that at least 1 billion of those cases could have been prevented or have yet to be addressed ([WHO](https://www.who.int/news-room/fact-sheets/detail/blindness-and-visual-impairment)). A major barrier is the shortage of trained eye care providers. Automated screening of fundus photos, which can be taken with portable cameras by trained non-specialists, is one way to prioritise who needs an ophthalmologist first.
@@ -18,7 +28,6 @@ I had implantable collamer lens (ICL) surgery and saw first-hand how much imagin
 
 - About **79% of images show disease**, so "always predict diseased" is 79% accurate. Accuracy alone is therefore a misleading metric here.
 - Images often carry **several labels**: 458 training images have two or more diseases.
-
 - **No near-duplicate images across splits.** Every image was fingerprinted with a perceptual hash and no nearly identical pairs were found between training, validation and test, so test scores aren't inflated by copies of training images. Notebook 02 re-runs this check.
 - Notebook 02 also tests whether the **camera** (inferred from image size) predicts the label, which would let a model take a shortcut.
 
@@ -44,33 +53,61 @@ fundus photo ──► crop to fundus, square, resize ──► 3 CNN backbones 
 
 ## Results
 
-> Fill these in from the last cell of notebooks 03 and 04 after training. All numbers are on the held-out test set (640 images).
+All numbers are on the **held-out test set** (640 images, never used for training, early stopping, thresholds or model selection). 95% confidence intervals come from 1,000 bootstrap resamples.
 
-**Disease risk (healthy vs diseased)**
+### Disease risk (healthy vs diseased)
 
-| Model | AUC (95% CI) | Sensitivity | Specificity | PPV | NPV |
-|---|---|---|---|---|---|
-| EfficientNet-B0 | | | | | |
-| DenseNet-121 | | | | | |
-| ConvNeXt-Tiny | | | | | |
-| **Ensemble** | | | | | |
-| Classical baseline (34 image statistics) | | | | | |
-| Always "diseased" | 0.500 | 1.000 | 0.000 | 0.791 | — |
-
-**Ensemble vs best single model** (paired bootstrap on the test set): AUC difference ___ (95% CI ___ to ___), verdict: ___.
-
-**Disease type (ensemble, per disease)**
-
-| Disease | Test positives | AUC | PR-AUC | Prevalence | F1 | Sensitivity | Specificity |
+| Model | AUC (95% CI) | Sensitivity | Specificity | PPV | NPV | Balanced acc. | Accuracy |
 |---|---|---|---|---|---|---|---|
-| DR | 124 | | | 0.194 | | | |
-| MH | 104 | | | 0.163 | | | |
-| ODC | 91 | | | 0.142 | | | |
+| EfficientNet-B0 | 0.976 (0.964–0.985) | 0.899 | 0.963 | 0.989 | 0.717 | 0.931 | 0.912 |
+| DenseNet-121 | 0.974 (0.962–0.984) | 0.881 | 0.955 | 0.987 | 0.681 | 0.918 | 0.897 |
+| ConvNeXt-Tiny | 0.972 (0.959–0.983) | 0.925 | 0.933 | 0.981 | 0.767 | 0.929 | 0.927 |
+| **Ensemble** | **0.977 (0.966–0.986)** | **0.911** | **0.955** | **0.987** | **0.740** | **0.933** | **0.920** |
+| Classical baseline (34 image statistics) | 0.898 (0.869–0.923) | 0.875 | 0.754 | 0.931 | 0.616 | 0.815 | 0.850 |
+| Always "diseased" | 0.500 | 1.000 | 0.000 | 0.791 | — | 0.500 | 0.791 |
+| *v1 (2023), for reference* | *≈0.45–0.55 (val)* | | *≈0–0.12* | | | | *0.73–0.78* |
 
-<!-- After training, copy results/*.png from your Drive into docs/ and uncomment:
-![ROC and confusion matrix](docs/binary_roc_cm.png)
-![Grad-CAM examples](docs/binary_gradcam.png)
--->
+![ROC curves and confusion matrix on the test set](docs/binary_roc_cm.png)
+
+**Reading the results**
+- **Screening threshold.** The ensemble's threshold (0.31) was chosen on the validation set to catch 90% of diseased eyes. On the test set it caught **91.1% (461 of 506)**, so the target transferred to unseen data.
+- **Few false alarms.** Only **6 of 134 healthy eyes** were flagged (specificity 95.5%); when the model says "diseased" it is right 98.7% of the time.
+- **Main limitation: "healthy" calls.** 45 diseased eyes were called healthy, so a "healthy" result is right only 74% of the time (NPV). Because 79% of RFMiD images show disease, a negative result should not be treated as reassurance.
+- **Deep learning earns its place.** The ensemble beats the classical baseline by **+0.079 AUC (95% CI +0.058 to +0.104)**.
+- **The ensemble's gain over a single model is small.** Against the best single model chosen on validation (ConvNeXt-Tiny), the gain is **+0.005 AUC (95% CI +0.000 to +0.010)**: statistically detectable but practically minor. A single EfficientNet-B0 is almost as good at a third of the size.
+- **Validation vs test.** Validation AUC was about 0.95 and test AUC 0.977. The test set was untouched and the duplicate check found no cross-split copies, so this most likely reflects the test images being somewhat easier; a fair summary is **AUC ≈ 0.95–0.98**.
+
+### Disease type: DR, MH and ODC (multi-label)
+
+Each disease has its own yes/no output, so an eye can be positive for several. Macro averages over the three diseases:
+
+| Model | AUC | PR-AUC | F1 | Sensitivity | Specificity |
+|---|---|---|---|---|---|
+| EfficientNet-B0 | 0.942 | 0.800 | 0.703 | 0.775 | 0.919 |
+| DenseNet-121 | 0.940 | 0.807 | 0.722 | 0.752 | 0.936 |
+| ConvNeXt-Tiny | 0.950 | 0.824 | 0.712 | 0.771 | 0.927 |
+| **Ensemble** | **0.950** | **0.830** | 0.711 | 0.712 | **0.952** |
+| Classical baseline | 0.837 | 0.594 | 0.563 | 0.689 | 0.839 |
+| *v1 (2023), 3-class softmax* | | | | | *accuracy 0.30–0.46* |
+
+Per disease (ensemble). PR-AUC should be read against prevalence, which is what random guessing would score:
+
+| Disease | Test positives | AUC | PR-AUC | Prevalence | Threshold | F1 | Sensitivity | Specificity |
+|---|---|---|---|---|---|---|---|---|
+| Diabetic retinopathy (DR) | 124 | 0.979 | 0.922 | 0.194 | 0.64 | 0.815 | 0.815 | 0.955 |
+| Media haze (MH) | 104 | 0.975 | 0.911 | 0.162 | 0.57 | 0.785 | 0.913 | 0.920 |
+| Optic disc cupping (ODC) | 91 | 0.898 | 0.658 | 0.142 | 0.77 | 0.532 | 0.407 | 0.980 |
+
+![Per-disease ROC curves on the test set](docs/multilabel_roc.png)
+
+**Reading the results**
+- **DR and MH are detected very well** (AUC ≈ 0.98, PR-AUC ≈ 0.91 against a random-guess level of ≈ 0.18).
+- **ODC is the hardest.** Optic disc cupping is a subtle change in the shape of the optic disc rather than a visible lesion, and at 384 px the disc occupies only a small part of the image. Its AUC (0.90) is still good, but at the F1-optimal threshold the model **misses about 6 in 10 ODC cases** (sensitivity 0.41). For screening, a lower ODC threshold would catch more cases at the cost of more false alarms; a dedicated optic-disc crop at higher resolution is the most promising fix.
+- **Thresholds were tuned for F1 on validation**, which favours specificity here (0.95) over sensitivity (0.71). The threshold is a clinical choice, not a fixed property of the model.
+- **Deep learning earns its place overall:** +0.114 macro AUC over the classical baseline (95% CI +0.093 to +0.137).
+- **Except for media haze.** Simple image statistics reach AUC 0.966 for MH, almost matching the CNNs (0.975). That makes sense: media haze is a loss of clarity across the whole image, which the baseline's sharpness and contrast features measure directly. For DR (0.788 vs 0.979) and ODC (0.756 vs 0.898), which depend on small local structures, the CNNs are far better.
+- **The ensemble does not beat its best single model here.** Against ConvNeXt-Tiny (chosen on validation) the difference is +0.001 macro AUC (95% CI −0.004 to +0.005): no clear difference. For this task a single ConvNeXt-Tiny is as good and simpler.
+- **Compared with v1**, which used a 3-class softmax on 724 images and scored below the "always predict DR" baseline, the multi-label model uses all 1,920 training images and can represent eyes with more than one disease.
 
 ## What changed in v2
 
@@ -140,7 +177,7 @@ python -m pytest tests -q
 ## Limitations and next steps
 
 - 3,200 images from one dataset; performance on other cameras and populations is unknown. External validation (for example on ODIR or APTOS) is the most important next step.
-- Only 3 of 45 conditions are classified individually.
+- Only 3 of 45 conditions are classified individually, and optic disc cupping is detected much less reliably than DR and MH.
 - Labels come from two graders, so label noise is likely for subtle cases.
 - Grad-CAM shows where the model looked, not whether its reasoning is clinically correct.
 
