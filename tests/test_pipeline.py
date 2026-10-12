@@ -159,6 +159,16 @@ def test_huggingface_export(monkeypatch=None):
         pass
 
 
+def test_multihot_labels():
+    """The Hugging Face mirror's current format: a 45-long 0/1 vector in official column order."""
+    from iluminado import download as DL
+    healthy, dr_odc = [0] * 45, [0] * 45
+    dr_odc[DL.CODES.index("DR")] = dr_odc[DL.CODES.index("ODC")] = 1
+    f = DL.label_frame([0, 1], [str(healthy), str(dr_odc)])
+    assert f.loc[0, DL.CODES].sum() == 0
+    assert f.loc[1, "DR"] == 1 and f.loc[1, "ODC"] == 1 and f.loc[1, DL.CODES].sum() == 2
+
+
 def test_audits_and_baseline():
     from iluminado import audit as A, baseline as B
     with tempfile.TemporaryDirectory() as tmp:
@@ -186,6 +196,7 @@ def test_audits_and_baseline():
 
 if __name__ == "__main__":
     test_evaluation_helpers()
+    test_multihot_labels()
     test_huggingface_export()
     test_audits_and_baseline()
     test_end_to_end()

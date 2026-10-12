@@ -54,7 +54,16 @@ def _pieces(value) -> list[str]:
     return [p.strip().strip("'\"").strip() for p in re.split(r"[,;|/\n]+", s)]
 
 
+def _is_multihot(value) -> bool:
+    """A 45-long list of 0/1 flags, one per disease in official column order."""
+    toks = [t for t in _pieces(value) if t != ""]
+    return len(toks) == len(CODES) and all(t in ("0", "1") for t in toks)
+
+
 def _infer_mode(values) -> str:
+    vals = list(values)
+    if vals and all(_is_multihot(v) for v in vals):
+        return "multihot"
     tokens = [t for v in values for t in _pieces(v) if t.lower() not in EMPTY_TOKENS]
     if tokens and not any(t.upper() in CODE_NAMES or t.lower() in NAME_TO_CODE for t in tokens) \
             and all(t.isdigit() for t in tokens):
@@ -63,6 +72,9 @@ def _infer_mode(values) -> str:
 
 
 def parse_label(value, mode: str) -> list[str]:
+    if mode == "multihot":
+        flags = [t for t in _pieces(value) if t != ""]
+        return [c for c, f in zip(CODES, flags) if f == "1"]
     out = []
     for t in _pieces(value):
         tl = t.lower()
@@ -101,7 +113,8 @@ def label_frame(disease_risk, labels) -> pd.DataFrame:
     return frame
 
 
-def fetch_hf(out_dir: str | Path, repo: str = HF_REPO, max_side: int | None = 1024, log_every: int = 400) -> tuple[Path, Path]:
+def fetch_hf(out_dir: str | Path, repo: str = HF_REPO, max_side: int | None = 1024, log_every: int = 400,
+             official_dir: str | Path | None = None) -> tuple[Path, Path]:
     """Download and export RFMiD. Returns (image_root, label_dir).
 
     Re-running skips images already exported. max_side shrinks images on export
@@ -123,7 +136,16 @@ def fetch_hf(out_dir: str | Path, repo: str = HF_REPO, max_side: int | None = 10
         for col in ("image", "Disease_Risk", "label"):
             if col not in ds.column_names:
                 raise KeyError(f"Expected column {col!r}; the mirror has {ds.column_names}.")
-        label_frame(ds["Disease_Risk"], ds["label"]).to_csv(label_dir / csv_name, index=False)
+        frame = label_frame(ds["Disease_Risk"], ds["label"])
+        if official_dir is not None:
+            official = pd.read_csv(Path(official_dir) / csv_name)
+            cols = [c for c in official.columns if c != "ID"]
+            diff = (frame[cols].sum() - official[cols].sum())
+            if len(frame) != len(official) or (diff != 0).any():
+                raise ValueError(f"{hf_name}: parsed labels don't match the official RFMiD label totals "
+                                 f"(differences: {diff[diff != 0].to_dict()}). The mirror's label format may have "
+                                 "changed; use SOURCE = 'kaggle' or 'local' instead.")
+        frame.to_csv(label_dir / csv_name, index=False)
         dst_dir = image_root / folder
         dst_dir.mkdir(parents=True, exist_ok=True)
         print(f"Exporting {hf_name}: {len(ds)} images")
