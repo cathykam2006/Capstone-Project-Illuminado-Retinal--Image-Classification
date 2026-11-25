@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+  <title>Iluminado - Retinal Disease Screening | Cathy Kam</title>
+  <meta name="description" content="Retinal fundus photo screening with EfficientNet-B0 and heatmaps. Runs entirely in your browser; images never leave your device. Built by Cathy Kam." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁️</text></svg>" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@stlite/browser@1.12.3/build/stlite.css" />
+</head>
+<body>
+  <div id="root"></div>
+  <noscript>This app runs Python in your browser, so it needs JavaScript turned on.</noscript>
+  <script type="module">
+    import { mount } from "https://cdn.jsdelivr.net/npm/@stlite/browser@1.12.3/build/stlite.js";
+
+    // Everything the app reads lives on this branch next to this page
+    // (built by build_static.py from the main branch).
+    const FILES = [
+      "app/streamlit_app_static.py",
+      "tflite_numpy.py",
+      "iluminado/__init__.py",
+      "iluminado/data.py",
+      "models/binary_ensemble.json",
+      "models/multilabel_ensemble.json",
+      "models_numpy/binary.json",
+      "models_numpy/binary.npz",
+      "models_numpy/multilabel.json",
+      "models_numpy/multilabel.npz",
+      "app/samples/diabetic_retinopathy_test1.jpg",
+      "app/samples/healthy_test245.jpg",
+      "app/samples/media_haze_test24.jpg",
+      "app/samples/optic_disc_cupping_test17.jpg",
+    ];
+    const files = {};
+    for (const path of FILES) files[path] = { url: `./${path}` };
+
+    mount(
+      {
+        entrypoint: "app/streamlit_app_static.py",
+        requirements: ["numpy", "pandas", "pillow", "matplotlib"],
+        files,
+        streamlitConfig: {
+          "server.maxUploadSize": 20,
+          "client.toolbarMode": "viewer",
+        },
+      },
+      document.getElementById("root"),
+    );
+  </script>
+</body>
+</html>
